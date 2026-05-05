@@ -45,14 +45,14 @@ const Sidebar = ({ active, onSelect, open }) => {
     { id: "fluxo", icon: "flow", label: "Fluxo de Caixa" },
     { id: "tesouraria", icon: "treasury", label: "Tesouraria" },
     { id: "comparativo", icon: "compare", label: "Comparativo" },
-    { id: "relatorio", icon: "fileText", label: "Relatório IA" },
-    { id: "valuation", icon: "invest", label: "Valuation" },
+    { id: "relatorio", icon: "fileText", label: "Relatório IA", pro: true },
+    { id: "valuation", icon: "invest", label: "Valuation", pro: true },
     { id: "diary", icon: "diary", label: "Diário", badge: "EM BREVE" },
   ];
   const others = [
-    { id: "orcamento", icon: "money", label: "Orçamento" },
-    { id: "lojas", icon: "compare", label: "Painel de Lojas" },
-    { id: "risco", icon: "chart", label: "Risco & Concentração" },
+    { id: "orcamento", icon: "money", label: "Orçamento", pro: true },
+    { id: "lojas", icon: "compare", label: "Painel de Lojas", pro: true },
+    { id: "risco", icon: "chart", label: "Risco & Concentração", pro: true },
     { id: "indicators", icon: "chart", label: "Indicadores" },
     { id: "faturamento_produto", icon: "money", label: "Faturamento" },
     { id: "curva_abc", icon: "chart", label: "Curva ABC" },
@@ -71,6 +71,8 @@ const Sidebar = ({ active, onSelect, open }) => {
   const renderItem = (it) => {
     if (isHidden(it.id)) return null;
     const upsell = isUpsell(it.id);
+    // PRO badge: aparece se item tem `pro:true` (visual) OU mode==='upsell' (funcional)
+    const showProBadge = upsell || it.pro;
     return (
       <button
         key={it.id}
@@ -78,11 +80,11 @@ const Sidebar = ({ active, onSelect, open }) => {
         onClick={() => !it.badge && onSelect(it.id)}
         disabled={!!it.badge}
         style={it.badge ? { opacity: 0.55, cursor: "default" } : {}}
-        title={upsell ? "Funcionalidade PRO — clique pra ver detalhes" : it.label}
+        title={upsell ? "Funcionalidade PRO — clique pra ver detalhes" : (it.pro ? "Funcionalidade PRO — disponível neste demo" : it.label)}
       >
         <Icon name={it.icon} />
         <span className="label">{it.label}</span>
-        {upsell && <span className="sb-item-badge-pro">PRO</span>}
+        {showProBadge && <span className="sb-item-badge-pro">PRO</span>}
         {it.badge && <span className="badge">{it.badge}</span>}
       </button>
     );
