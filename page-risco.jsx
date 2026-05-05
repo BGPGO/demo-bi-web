@@ -153,7 +153,8 @@ const PageRisco = ({ statusFilter, drilldown, setDrilldown, year, month }) => {
     const cumData = top.map(d => { cum += (d[valKey]||0); return { ...d, cumPct: total > 0 ? (cum/total)*100 : 0 }; });
     const linePath = cumData.map((d,i) => `${i===0?'M':'L'}${(x(i)+barW/2).toFixed(1)},${yLine(d.cumPct).toFixed(1)}`).join(' ');
     return (
-      <svg width="100%" viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none" style={{ display: "block", height }}>
+      <div style={{ width: "100%", maxWidth: W }}>
+      <svg viewBox={`0 0 ${W} ${height}`} style={{ display: "block", width: "100%", height: "auto" }}>
         {[0, 25, 50, 75, 100].map(p => (
           <g key={p}>
             <line x1={ml} y1={yLine(p)} x2={W-mr} y2={yLine(p)} stroke="var(--border)" strokeDasharray="3,3" />
@@ -179,6 +180,7 @@ const PageRisco = ({ statusFilter, drilldown, setDrilldown, year, month }) => {
         })}
         <text x={ml-5} y={mt+ch+3} textAnchor="end" fontSize="9" fill="var(--fg-3)">0</text>
       </svg>
+      </div>
     );
   };
 
