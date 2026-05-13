@@ -2735,6 +2735,15 @@ table.t tr.total td {
   .row { gap: 8px !important; }
   .kpi-stack { gap: 8px !important; }
 
+  /* ---- Restaura grid desktop (Chrome print = viewport ~793px ativa @media max-width:1100px
+          que empilha tudo em 1 coluna). Forçamos grid 2-col mesmo em A4. ---- */
+  .row-1-1 { grid-template-columns: 1fr 1fr !important; }
+  .row-2-1 { grid-template-columns: 2fr 1fr !important; }
+  .row-3-9 { grid-template-columns: minmax(180px, 3fr) minmax(0, 9fr) !important; }
+  .row-4 { grid-template-columns: repeat(2, 1fr) !important; }
+  /* kpi-row já usa auto-fit minmax(220px,1fr) — em A4 ~688px útil rende 3 cols */
+  .kpi-row { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important; }
+
   /* ---- SVGs proporcionais (chave do "gráficos atirados") ---- */
   /* Antes: width:100% + preserveAspectRatio="none" + height inline grande
      => esticavam horizontalmente, ficando achatados na A4.
