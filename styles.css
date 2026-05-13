@@ -1756,55 +1756,89 @@ table.t tr.total td {
 }
 
 /* ===== Print rules pro Relatorio IA standalone (Ctrl+P / Save as PDF) =====
-   PRESERVA tema escuro da tela: só ajusta page-break/tipografia A4.
-   Cores/backgrounds vêm direto do tema dark via print-color-adjust: exact. */
+   PRESERVA tema escuro da tela e deixa o conteudo fluir naturalmente,
+   sem forçar quebras de pagina que deixavam folhas quase vazias.
+   Cores/backgrounds vêm via print-color-adjust: exact (no bloco @media print global). */
 
 @media print {
+  body:has(.report) {
+    orphans: 3;
+    widows: 3;
+  }
+
   body:has(.report) .report {
     border: 0 !important;
+    padding: 0 !important;
     max-width: 100% !important;
     font-size: 11pt;
   }
 
+  /* Capa compacta: flui no inicio da pagina sem ocupar uma folha inteira */
   body:has(.report) .report-cover {
-    page-break-after: always;
-    padding-top: 40mm !important;
-    height: auto;
-    min-height: 220mm;
+    padding: 8mm 0 12mm !important;
+    margin-bottom: 8mm !important;
+    height: auto !important;
+    min-height: 0 !important;
   }
   body:has(.report) .report-logo {
-    width: 50mm;
-    margin-bottom: 16mm;
+    width: 32mm;
+    margin-bottom: 8mm;
   }
-  body:has(.report) .report-title { font-size: 22pt !important; }
-  body:has(.report) .report-subtitle { font-size: 14pt !important; }
-  body:has(.report) .report-meta { font-size: 10pt !important; }
+  body:has(.report) .report-title { font-size: 18pt !important; margin-bottom: 4mm !important; }
+  body:has(.report) .report-subtitle { font-size: 13pt !important; }
+  body:has(.report) .report-meta { font-size: 9pt !important; }
 
+  /* Seções fluem: H2 nunca fica orfao no fim de pagina; KPIs nao quebram */
   body:has(.report) .report-section {
-    page-break-inside: avoid;
+    padding: 8mm 0 !important;
   }
-  body:has(.report) .report-section h2 { font-size: 16pt !important; }
-  body:has(.report) .report-section h3.report-sub { font-size: 10pt !important; }
+  body:has(.report) .report-section h2 {
+    font-size: 14pt !important;
+    margin-bottom: 4mm !important;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  body:has(.report) .report-section h3.report-sub {
+    font-size: 9pt !important;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
 
   body:has(.report) .report-kpis {
     display: grid !important;
-    grid-template-columns: repeat(2, 1fr) !important;
-    gap: 4mm !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 3mm !important;
+    margin: 4mm 0 !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
-  body:has(.report) .report-kpi { page-break-inside: avoid; }
+  body:has(.report) .report-kpi {
+    padding: 6mm 4mm !important;
+  }
+  body:has(.report) .report-kpi .lbl { font-size: 8pt !important; }
+  body:has(.report) .report-kpi .val { font-size: 11pt !important; }
+
+  body:has(.report) .report-list { margin: 3mm 0 !important; }
+  body:has(.report) .report-list li {
+    padding: 2mm 0 !important;
+    font-size: 10pt !important;
+  }
 
   body:has(.report) .report-analysis {
-    font-size: 11pt !important;
-    line-height: 1.6 !important;
-    page-break-inside: avoid;
+    font-size: 10.5pt !important;
+    line-height: 1.5 !important;
+    margin: 3mm 0 !important;
   }
 
+  /* Conclusão pode quebrar livre — antes forçava avoid e empurrava pra nova pagina vazia */
   body:has(.report) .report-conclusion {
-    page-break-inside: avoid;
+    margin-top: 6mm !important;
+    padding: 6mm !important;
   }
 
   body:has(.report) .report-footer {
-    margin-top: 8mm;
+    margin-top: 6mm !important;
+    font-size: 8pt !important;
   }
 }
 
