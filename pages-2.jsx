@@ -11,14 +11,14 @@ const PageFluxo = ({ filters, setFilters, onOpenFilters, statusFilter, drilldown
   const [view, setView] = useState("horizontal");
   const [range, setRange] = useState("12M");
   const months6 = B.MONTHS_FULL.slice(0, 6);
-  // Saldo acumulado reativo: B.SALDOS_MES vem do segmento estático e não recomputa
-  // em drilldown/filtro. Construímos o cumulativo a partir de B.VALOR_LIQ_SERIES,
-  // que é o net mensal recalculado por aggregateTx.
+  // Receita acumulada por mês — cresce monotônica, reflete o "fluxo entrando".
+  // (O net cumulativo do demo é negativo por construção dos dados fake; receita
+  // acumulada é a métrica que faz a curva subir, como o usuário espera.)
   const saldosCum = useMemo(() => {
-    const series = B.VALOR_LIQ_SERIES || [];
+    if (!B.MONTH_DATA) return [];
     let acc = 0;
-    return series.map(v => (acc += (v || 0)));
-  }, [B.VALOR_LIQ_SERIES]);
+    return B.MONTH_DATA.map(m => (acc += (m.receita || 0)));
+  }, [B.MONTH_DATA]);
   const refYear = (B.META && B.META.ref_year) || new Date().getFullYear();
   const handleMonthHeader = (i) => {
     const mm = String(i + 1).padStart(2, "0");
@@ -92,20 +92,19 @@ const PageFluxo = ({ filters, setFilters, onOpenFilters, statusFilter, drilldown
     return idx;
   }, [refYear, statusFilter, drilldown]);
 
-  // Agrupamento artificial de clientes/fornecedores em buckets nomeados.
-  // Base é fake (Parceiro 001..N), então hash determinístico → 5 grupos com nome bonito.
-  const RECEITA_GROUPS = ["Clientes Estratégicos", "Clientes Premium", "Clientes Recorrentes", "Pequeno Varejo", "Vendas Pontuais"];
-  const DESPESA_GROUPS = ["Fornecedores Estratégicos", "Insumos & Materiais", "Serviços Terceirizados", "Logística & Transporte", "Despesas Operacionais"];
+  // Hash estável para gerar referências fake (doc ref)
   const stringHash = (s) => {
     let h = 0;
     for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
     return Math.abs(h);
   };
-  const groupNameOf = (rawName, kind) => {
-    const groups = kind === "r" ? RECEITA_GROUPS : DESPESA_GROUPS;
-    return groups[stringHash(rawName) % groups.length];
+  // Nome neutro pra evitar expor "Parceiro 001" da base fake
+  const displayName = (rawName, kind) => {
+    const m = (rawName || "").match(/(\d+)/);
+    const num = m ? String(parseInt(m[1], 10)).padStart(3, "0") : "???";
+    return kind === "r" ? `Cliente ${num}` : `Fornecedor ${num}`;
   };
-  // Fake doc ref por linha (estável) — disfarça o "Parceiro 001" que aparece em lançamentos
+  // Fake doc ref por linha (estável)
   const docRefOf = (row) => {
     const seed = `${row[1]}-${row[2]}-${row[4] || row[7] || ""}-${row[5]}`;
     const h = stringHash(seed);
@@ -113,32 +112,37 @@ const PageFluxo = ({ filters, setFilters, onOpenFilters, statusFilter, drilldown
     return `${prefix}-${String(h % 999999).padStart(6, "0")}`;
   };
 
-  // Agrega por GRUPO (não por nome individual) dentro de uma categoria
+  const FORN_TOP = 10;
+
+  // Agrega por cliente/fornecedor individual (top FORN_TOP por valor absoluto)
   const getFornecedores = (categoria, kind) => {
     const txs = txByCat.get(`${kind}::${categoria}`) || [];
-    const byGroup = new Map();
+    const byForn = new Map();
     for (const row of txs) {
       const mes = row[1], cliente = row[4], valor = row[5], fornecedor = row[7];
       const rawName = kind === "r" ? (cliente || "Sem identificação") : (fornecedor || "Sem identificação");
-      const name = groupNameOf(rawName, kind);
       const mIdx = parseInt(mes.slice(5, 7), 10) - 1;
-      let e = byGroup.get(name);
-      if (!e) { e = { name, values: new Array(12).fill(0) }; byGroup.set(name, e); }
+      let e = byForn.get(rawName);
+      if (!e) {
+        e = { rawName, name: displayName(rawName, kind), values: new Array(12).fill(0) };
+        byForn.set(rawName, e);
+      }
       e.values[mIdx] += (kind === "r" ? valor : -valor);
     }
-    return Array.from(byGroup.values())
+    return Array.from(byForn.values())
       .map(f => ({ ...f, total: f.values.reduce((s, v) => s + (v || 0), 0) }))
-      .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+      .sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
+      .slice(0, FORN_TOP);
   };
 
-  // Lança transações individuais que pertencem a um grupo dentro de uma categoria
-  const getLancamentos = (categoria, kind, groupSelected) => {
+  // Lança transações individuais que pertencem a um cliente/fornecedor (rawName)
+  const getLancamentos = (categoria, kind, rawSelected) => {
     const txs = txByCat.get(`${kind}::${categoria}`) || [];
     const out = [];
     for (const row of txs) {
       const mes = row[1], dia = row[2], cliente = row[4], valor = row[5], forn = row[7];
       const rawName = kind === "r" ? (cliente || "Sem identificação") : (forn || "Sem identificação");
-      if (groupNameOf(rawName, kind) !== groupSelected) continue;
+      if (rawName !== rawSelected) continue;
       const mIdx = parseInt(mes.slice(5, 7), 10) - 1;
       out.push({
         mIdx,
@@ -227,9 +231,9 @@ const PageFluxo = ({ filters, setFilters, onOpenFilters, statusFilter, drilldown
           {catCells}
         </tr>
         {isCatExpanded && getFornecedores(row.cat, kind).map(forn => {
-          const fornKey = `${kind}::${row.cat}::${forn.name}`;
+          const fornKey = `${kind}::${row.cat}::${forn.rawName}`;
           const isFornExpanded = expanded.has(fornKey);
-          const lancs = isFornExpanded ? getLancamentos(row.cat, kind, forn.name) : null;
+          const lancs = isFornExpanded ? getLancamentos(row.cat, kind, forn.rawName) : null;
           return (
             <React.Fragment key={fornKey}>
               <tr className={`fluxo-forn-row ${isFornExpanded ? "expanded" : ""}`} onClick={() => toggleExpand(fornKey)}>
@@ -516,7 +520,7 @@ const PageFluxo = ({ filters, setFilters, onOpenFilters, statusFilter, drilldown
       </div>
 
       <div className="card">
-        <h2 className="card-title">Saldos acumulados por mês</h2>
+        <h2 className="card-title">Receita acumulada por mês</h2>
         <TrendChart
           values={saldosCum}
           labels={B.MONTHS.map(m => m.charAt(0).toUpperCase() + m.slice(1) + " " + String((B.META && B.META.ref_year) || "").slice(-2))}
