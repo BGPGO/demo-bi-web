@@ -47,6 +47,111 @@ const PageFluxo = ({ filters, setFilters, onOpenFilters, statusFilter, drilldown
     [B.FLUXO_DESPESA, months6.length]
   );
 
+  // ===== Hierarquia clicável: categoria → fornecedor/cliente → lançamento =====
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggleExpand = (key) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  // Reset ao mudar filtro (evita keys penduradas que não fazem mais sentido)
+  useEffect(() => { setExpanded(new Set()); }, [statusFilter, drilldown, refYear]);
+
+  const statusOk = (realizado) => {
+    if (statusFilter === "realizado") return realizado === 1;
+    if (statusFilter === "a_pagar_receber") return realizado === 0;
+    return true;
+  };
+  const drillOk = (row) => {
+    if (!drilldown) return true;
+    if (drilldown.type === "mes") return row[1] === drilldown.value;
+    if (drilldown.type === "categoria") return row[3] === drilldown.value;
+    if (drilldown.type === "cliente") return row[0] === "r" && row[4] === drilldown.value;
+    if (drilldown.type === "fornecedor") return row[0] === "d" && row[7] === drilldown.value;
+    if (drilldown.type === "conta") return row[9] === drilldown.value;
+    return true;
+  };
+
+  // Index transações por (kind, categoria) — uma única passada por render
+  const txByCat = useMemo(() => {
+    const allTx = window.ALL_TX || [];
+    const idx = new Map();
+    for (const row of allTx) {
+      const kind = row[0], mes = row[1], categoria = row[3], realizado = row[6];
+      if (!mes || !categoria) continue;
+      if (parseInt(mes.slice(0, 4), 10) !== refYear) continue;
+      if (!statusOk(realizado)) continue;
+      if (!drillOk(row)) continue;
+      const key = `${kind}::${categoria}`;
+      let bucket = idx.get(key);
+      if (!bucket) { bucket = []; idx.set(key, bucket); }
+      bucket.push(row);
+    }
+    return idx;
+  }, [refYear, statusFilter, drilldown]);
+
+  // Agrupamento artificial de clientes/fornecedores em buckets nomeados.
+  // Base é fake (Parceiro 001..N), então hash determinístico → 5 grupos com nome bonito.
+  const RECEITA_GROUPS = ["Clientes Estratégicos", "Clientes Premium", "Clientes Recorrentes", "Pequeno Varejo", "Vendas Pontuais"];
+  const DESPESA_GROUPS = ["Fornecedores Estratégicos", "Insumos & Materiais", "Serviços Terceirizados", "Logística & Transporte", "Despesas Operacionais"];
+  const stringHash = (s) => {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return Math.abs(h);
+  };
+  const groupNameOf = (rawName, kind) => {
+    const groups = kind === "r" ? RECEITA_GROUPS : DESPESA_GROUPS;
+    return groups[stringHash(rawName) % groups.length];
+  };
+  // Fake doc ref por linha (estável) — disfarça o "Parceiro 001" que aparece em lançamentos
+  const docRefOf = (row) => {
+    const seed = `${row[1]}-${row[2]}-${row[4] || row[7] || ""}-${row[5]}`;
+    const h = stringHash(seed);
+    const prefix = row[0] === "r" ? "NF" : "DOC";
+    return `${prefix}-${String(h % 999999).padStart(6, "0")}`;
+  };
+
+  // Agrega por GRUPO (não por nome individual) dentro de uma categoria
+  const getFornecedores = (categoria, kind) => {
+    const txs = txByCat.get(`${kind}::${categoria}`) || [];
+    const byGroup = new Map();
+    for (const row of txs) {
+      const mes = row[1], cliente = row[4], valor = row[5], fornecedor = row[7];
+      const rawName = kind === "r" ? (cliente || "Sem identificação") : (fornecedor || "Sem identificação");
+      const name = groupNameOf(rawName, kind);
+      const mIdx = parseInt(mes.slice(5, 7), 10) - 1;
+      let e = byGroup.get(name);
+      if (!e) { e = { name, values: new Array(12).fill(0) }; byGroup.set(name, e); }
+      e.values[mIdx] += (kind === "r" ? valor : -valor);
+    }
+    return Array.from(byGroup.values())
+      .map(f => ({ ...f, total: f.values.reduce((s, v) => s + (v || 0), 0) }))
+      .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  };
+
+  // Lança transações individuais que pertencem a um grupo dentro de uma categoria
+  const getLancamentos = (categoria, kind, groupSelected) => {
+    const txs = txByCat.get(`${kind}::${categoria}`) || [];
+    const out = [];
+    for (const row of txs) {
+      const mes = row[1], dia = row[2], cliente = row[4], valor = row[5], forn = row[7];
+      const rawName = kind === "r" ? (cliente || "Sem identificação") : (forn || "Sem identificação");
+      if (groupNameOf(rawName, kind) !== groupSelected) continue;
+      const mIdx = parseInt(mes.slice(5, 7), 10) - 1;
+      out.push({
+        mIdx,
+        valor: kind === "r" ? valor : -valor,
+        dataStr: `${String(dia).padStart(2, "0")}/${mes.slice(5, 7)}`,
+        docRef: docRefOf(row),
+      });
+    }
+    return out.sort((a, b) => a.mIdx - b.mIdx || Math.abs(b.valor) - Math.abs(a.valor));
+  };
+
+  const LANC_LIMIT = 50;
+
   // Helper: calcula o %-label de uma célula
   const cellPct = (v, rowValues, monthIdx, isReceita) => {
     if (view === "vertical") {
@@ -93,6 +198,80 @@ const PageFluxo = ({ filters, setFilters, onOpenFilters, statusFilter, drilldown
       </div>
     </>
   );
+
+  // ===== Renderiza categoria + (se expandida) fornecedores + (se expandidos) lançamentos =====
+  // Só usado no modo compact. Outros modos chamam o rendering inline original.
+  const renderCategoriaTree = (row, kind) => {
+    const isReceita = kind === "r";
+    const catKey = `${kind}::${row.cat}`;
+    const isCatExpanded = expanded.has(catKey);
+
+    const catCells = months6.map((_, i) => {
+      const v = row.values[i] || 0;
+      const pctLabel = cellPct(v, row.values, i, isReceita);
+      return (
+        <td key={i} className="num fluxo-stacked">
+          <div className="fluxo-stacked-val" style={{ color: heatColor(v, row.values, isReceita) }}>{B.fmt(v)}</div>
+          <div className="fluxo-stacked-pct">{pctLabel}</div>
+        </td>
+      );
+    });
+
+    return (
+      <React.Fragment key={catKey}>
+        <tr className={`fluxo-cat-row ${isCatExpanded ? "expanded" : ""}`} onClick={() => toggleExpand(catKey)}>
+          <td className="fluxo-row-label">
+            <span className={`fluxo-chev ${isCatExpanded ? "open" : ""}`}>▸</span>
+            {row.cat}
+          </td>
+          {catCells}
+        </tr>
+        {isCatExpanded && getFornecedores(row.cat, kind).map(forn => {
+          const fornKey = `${kind}::${row.cat}::${forn.name}`;
+          const isFornExpanded = expanded.has(fornKey);
+          const lancs = isFornExpanded ? getLancamentos(row.cat, kind, forn.name) : null;
+          return (
+            <React.Fragment key={fornKey}>
+              <tr className={`fluxo-forn-row ${isFornExpanded ? "expanded" : ""}`} onClick={() => toggleExpand(fornKey)}>
+                <td className="fluxo-row-label fluxo-indent-1">
+                  <span className={`fluxo-chev ${isFornExpanded ? "open" : ""}`}>▸</span>
+                  {forn.name}
+                </td>
+                {months6.map((_, i) => {
+                  const v = forn.values[i] || 0;
+                  return (
+                    <td key={i} className="num fluxo-stacked">
+                      <div className="fluxo-stacked-val" style={{ color: v ? heatColor(v, forn.values, isReceita) : "var(--fg-3)" }}>{v ? B.fmt(v) : "—"}</div>
+                    </td>
+                  );
+                })}
+              </tr>
+              {lancs && lancs.slice(0, LANC_LIMIT).map((l, idx) => (
+                <tr key={`l-${idx}`} className="fluxo-lanc-row">
+                  <td className="fluxo-row-label fluxo-indent-2">
+                    <span className="fluxo-lanc-bullet">·</span>
+                    {l.dataStr} · {l.docRef}
+                  </td>
+                  {months6.map((_, mi) => (
+                    <td key={mi} className="num fluxo-lanc-cell">
+                      {mi === l.mIdx ? <div className="fluxo-lanc-val" style={{ color: isReceita ? "var(--green-2)" : "var(--red-2)" }}>{B.fmt(l.valor)}</div> : null}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {lancs && lancs.length > LANC_LIMIT && (
+                <tr className="fluxo-lanc-more">
+                  <td colSpan={months6.length + 1} className="fluxo-indent-2">
+                    + {lancs.length - LANC_LIMIT} lançamentos não exibidos
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </React.Fragment>
+    );
+  };
 
   // ===== Tabela: renderiza thead+tbody conforme o modo =====
   // mode: 'classic' (2 cols por mês: valor + %), 'compact' (1 col: valor empilhado com %), 'heatmap' (1 col: valor com bg colorido)
@@ -155,34 +334,29 @@ const PageFluxo = ({ filters, setFilters, onOpenFilters, statusFilter, drilldown
           </tr>
 
           {/* Linhas de Receita */}
-          {B.FLUXO_RECEITA.map(row => (
-            <tr key={row.cat}>
-              <td><span className="chev">+</span>{row.cat}</td>
-              {months6.map((_, i) => {
-                const v = row.values[i] || 0;
-                const pctLabel = cellPct(v, row.values, i, true);
-                if (isClassic) {
+          {isCompact
+            ? B.FLUXO_RECEITA.map(row => renderCategoriaTree(row, "r"))
+            : B.FLUXO_RECEITA.map(row => (
+              <tr key={row.cat}>
+                <td><span className="chev">+</span>{row.cat}</td>
+                {months6.map((_, i) => {
+                  const v = row.values[i] || 0;
+                  const pctLabel = cellPct(v, row.values, i, true);
+                  if (isClassic) {
+                    return (
+                      <React.Fragment key={i}>
+                        <td className="num green">{B.fmt(v)}</td>
+                        <td className="num" style={{ color: "var(--fg-3)" }}>{pctLabel}</td>
+                      </React.Fragment>
+                    );
+                  }
                   return (
-                    <React.Fragment key={i}>
-                      <td className="num green">{B.fmt(v)}</td>
-                      <td className="num" style={{ color: "var(--fg-3)" }}>{pctLabel}</td>
-                    </React.Fragment>
+                    <td key={i} className="num green" style={{ background: heatBg(v, row.values, true) }}>{B.fmt(v)}</td>
                   );
-                }
-                if (isCompact) {
-                  return (
-                    <td key={i} className="num fluxo-stacked">
-                      <div className="fluxo-stacked-val" style={{ color: heatColor(v, row.values, true) }}>{B.fmt(v)}</div>
-                      <div className="fluxo-stacked-pct">{pctLabel}</div>
-                    </td>
-                  );
-                }
-                return (
-                  <td key={i} className="num green" style={{ background: heatBg(v, row.values, true) }}>{B.fmt(v)}</td>
-                );
-              })}
-            </tr>
-          ))}
+                })}
+              </tr>
+            ))
+          }
 
           {/* Seção: Despesa */}
           <tr className="section">
@@ -220,34 +394,29 @@ const PageFluxo = ({ filters, setFilters, onOpenFilters, statusFilter, drilldown
           </tr>
 
           {/* Linhas de Despesa */}
-          {B.FLUXO_DESPESA.map(row => (
-            <tr key={row.cat}>
-              <td><span className="chev">+</span>{row.cat}</td>
-              {months6.map((_, i) => {
-                const v = row.values[i] || 0;
-                const pctLabel = cellPct(v, row.values, i, false);
-                if (isClassic) {
+          {isCompact
+            ? B.FLUXO_DESPESA.map(row => renderCategoriaTree(row, "d"))
+            : B.FLUXO_DESPESA.map(row => (
+              <tr key={row.cat}>
+                <td><span className="chev">+</span>{row.cat}</td>
+                {months6.map((_, i) => {
+                  const v = row.values[i] || 0;
+                  const pctLabel = cellPct(v, row.values, i, false);
+                  if (isClassic) {
+                    return (
+                      <React.Fragment key={i}>
+                        <td className="num red">{B.fmt(v)}</td>
+                        <td className="num" style={{ color: "var(--fg-3)" }}>{pctLabel}</td>
+                      </React.Fragment>
+                    );
+                  }
                   return (
-                    <React.Fragment key={i}>
-                      <td className="num red">{B.fmt(v)}</td>
-                      <td className="num" style={{ color: "var(--fg-3)" }}>{pctLabel}</td>
-                    </React.Fragment>
+                    <td key={i} className="num red" style={{ background: heatBg(v, row.values, false) }}>{B.fmt(v)}</td>
                   );
-                }
-                if (isCompact) {
-                  return (
-                    <td key={i} className="num fluxo-stacked">
-                      <div className="fluxo-stacked-val" style={{ color: heatColor(v, row.values, false) }}>{B.fmt(v)}</div>
-                      <div className="fluxo-stacked-pct">{pctLabel}</div>
-                    </td>
-                  );
-                }
-                return (
-                  <td key={i} className="num red" style={{ background: heatBg(v, row.values, false) }}>{B.fmt(v)}</td>
-                );
-              })}
-            </tr>
-          ))}
+                })}
+              </tr>
+            ))
+          }
 
           {/* Total Líquido */}
           <tr className="total">

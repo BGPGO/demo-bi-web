@@ -725,8 +725,12 @@ table.t tr.total td {
   background: var(--card);
 }
 .fluxo-table thead th:first-child { z-index: 4; background: var(--bg-2, #0f1719); }
-.fluxo-table tr.section td:first-child,
-.fluxo-table tr.total td:first-child { background: var(--bg-2, #0f1719); }
+/* Sticky 1ª coluna pra section/total/cat-expandida/forn-expandida usa bg sólido
+   (rgba não funciona em sticky quando scrolla horizontal) */
+.fluxo-table tr.section td:first-child { background: #1f2832 !important; }
+.fluxo-table tr.total td:first-child { background: #14424a !important; }
+.fluxo-table .fluxo-cat-row.expanded td:first-child { background: #15333e !important; }
+.fluxo-table .fluxo-forn-row.expanded td:first-child { background: #142a32 !important; }
 .fluxo-table tbody tr:hover td:first-child { background: rgba(34, 211, 238, 0.04); }
 
 /* Variante C: célula compacta (valor empilhado com %) */
@@ -768,6 +772,127 @@ table.t tr.total td {
   font-size: 12px;
   transition: background 200ms;
 }
+
+/* ============== HIERARQUIA: total > section > cat-expandida > forn-expandida > linha ============== */
+
+/* Nível 1: Total Líquido — mais forte, com barra cyan no topo */
+.fluxo-table tr.total td {
+  background: rgba(34, 211, 238, 0.14) !important;
+  border-top: 2px solid var(--cyan) !important;
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 12px 12px;
+}
+
+/* Nível 2: Section (Receita / Despesa) — bg escuro, accent border-left por seção */
+.fluxo-table tr.section td {
+  background: rgba(255, 255, 255, 0.06) !important;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-top: 1px solid var(--border-2);
+  border-bottom: 1px solid var(--border-2);
+  padding: 11px 12px;
+}
+.fluxo-table tr.section td:first-child {
+  border-left: 3px solid var(--cyan);
+}
+
+/* Nível 3: Categoria EXPANDIDA — vira "subtotal ativo" da árvore aberta */
+.fluxo-cat-row {
+  cursor: pointer;
+  user-select: none;
+}
+.fluxo-cat-row td { transition: background 160ms; }
+.fluxo-cat-row:hover td { background: rgba(34, 211, 238, 0.05); }
+
+.fluxo-cat-row.expanded td {
+  background: rgba(34, 211, 238, 0.09) !important;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.35);
+}
+.fluxo-cat-row.expanded td:first-child {
+  border-left: 3px solid var(--cyan);
+}
+
+/* Nível 4: Fornecedor EXPANDIDO — sub-subtotal da árvore */
+.fluxo-forn-row {
+  cursor: pointer;
+  user-select: none;
+}
+.fluxo-forn-row td { padding: 5px 10px; line-height: 1.1; transition: background 160ms; }
+.fluxo-forn-row:hover td { background: rgba(34, 211, 238, 0.04); }
+.fluxo-forn-row td.num.fluxo-stacked .fluxo-stacked-val { font-size: 11.5px; }
+
+.fluxo-forn-row.expanded td {
+  background: rgba(34, 211, 238, 0.05) !important;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.18);
+}
+.fluxo-forn-row.expanded td:first-child {
+  border-left: 2px solid rgba(34, 211, 238, 0.5);
+}
+
+/* Nível 5: Lançamento (folha) — sem fundo, dashed sutil */
+.fluxo-lanc-row td {
+  padding: 3px 10px;
+  background: transparent !important;
+  border-bottom: 1px dashed rgba(255,255,255,0.04);
+}
+.fluxo-lanc-cell { padding-top: 2px !important; padding-bottom: 2px !important; }
+.fluxo-lanc-bullet {
+  display: inline-block;
+  width: 14px;
+  color: var(--fg-3);
+  margin-right: 4px;
+  text-align: center;
+  font-weight: 700;
+}
+.fluxo-lanc-val { font-family: var(--font-mono); font-size: 11px; font-weight: 500; }
+
+.fluxo-lanc-more td {
+  padding: 4px 10px;
+  font-size: 10.5px;
+  color: var(--fg-3);
+  font-style: italic;
+  text-align: left;
+  background: transparent;
+}
+
+/* Linha "Outros (N)" — agrupamento do tail de fornecedores. Não clicável, itálico. */
+.fluxo-outros-row td {
+  padding: 5px 10px;
+  font-style: italic;
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-bottom: 1px dashed rgba(255,255,255,0.06);
+}
+.fluxo-outros-row td.num.fluxo-stacked .fluxo-stacked-val { font-size: 11px; }
+.fluxo-outros-bullet {
+  display: inline-block;
+  width: 14px;
+  color: var(--fg-3);
+  margin-right: 4px;
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: -1px;
+}
+
+/* Chevron giratório */
+.fluxo-chev {
+  display: inline-block;
+  width: 14px;
+  font-size: 10px;
+  color: var(--fg-3);
+  margin-right: 6px;
+  transition: transform 180ms ease;
+  text-align: center;
+}
+.fluxo-chev.open { transform: rotate(90deg); color: var(--cyan); }
+
+/* Indentação por nível */
+.fluxo-row-label { padding-left: 12px; }
+.fluxo-indent-1 { padding-left: 30px !important; font-size: 11.5px; color: var(--fg-2); }
+.fluxo-indent-2 { padding-left: 50px !important; font-size: 11px; color: var(--fg-3); font-weight: 400; }
 
 /* ============== BAR LISTS ============== */
 .bar-list { display: grid; gap: 10px; }
